@@ -1,0 +1,13 @@
+{
+  "modelVersion": 2,
+  "piskel": {
+    "name": "default",
+    "description": "default タスクトレイアイコン(打鍵アクティビティトラッカー用)",
+    "fps": 12,
+    "height": 32,
+    "width": 32,
+    "layers": [
+      "{\"name\": \"Layer 1\", \"opacity\": 1, \"frameCount\": 1, \"chunks\": [{\"layout\": [[0]], \"base64PNG\": \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAkklEQVR4nGNgGAUDDBiROZKSMv/pYenz50/g9rKgS4qKitHU8tevX6HwWbAp0tMzoInlly5dwBBjYhhgwDTqAIZRBwwwYBp1AMOoA0a6A1iIrTRGVgjgAk5OLgzEgH379jBQ3QFOTi4M165dI1otsY5gYhhgwDTqAIYBBizEKgQlqgHNBaQaTLYDXqO120fBsAcAwmIgMlRMgDIAAAAASUVORK5CYII=\"}]}"
+    ]
+  }
+}

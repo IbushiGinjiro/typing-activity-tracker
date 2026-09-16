@@ -1,0 +1,7 @@
+pynput>=1.7.6
+pystray>=0.19.5
+Pillow>=10.0.0
+Flask>=3.0.0
+WMI>=1.5.1
+winotify>=1.1.0
+

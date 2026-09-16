@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>新しいキーボードの登録 - 打鍵アクティビティ</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; margin: 2rem; background:#f7f7f8; color:#222; max-width: 560px; }
+  h1 { font-size: 1.3rem; }
+  p.desc { color: #555; font-size: 0.9rem; }
+  .box { background: white; padding: 1.2rem 1.5rem; border-radius: 8px; margin-top: 1rem; }
+  .box h2 { font-size: 1rem; margin-top: 0; }
+  form { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+  select, input[type=text] { padding: 0.35rem 0.5rem; font-size: 0.9rem; flex: 1; }
+  button { padding: 0.4rem 1rem; font-size: 0.9rem; cursor: pointer; }
+  .device-key { font-family: monospace; background: #eee; padding: 0.1rem 0.4rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>新しいキーボードを検出しました</h1>
+  <p class="desc">検出したデバイス: <span class="device-key">{{ device_key }}</span></p>
+
+  {% if keyboards %}
+  <div class="box">
+    <h2>登録済みのキーボードとして扱う</h2>
+    <p class="desc">同じ型番を複数台お使いの場合など、既存のラベルにまとめたいときはこちら。</p>
+    <form method="post" action="{{ url_for('link_device') }}">
+      <input type="hidden" name="device_key" value="{{ device_key }}">
+      <select name="name">
+        {% for kb in keyboards %}
+        <option value="{{ kb }}">{{ kb }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">このラベルに紐付ける</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="box">
+    <h2>新規登録</h2>
+    <form method="post" action="{{ url_for('link_device') }}">
+      <input type="hidden" name="device_key" value="{{ device_key }}">
+      <input type="text" name="name" placeholder="例: 新しいキーボード" required>
+      <button type="submit">新規登録して切替</button>
+    </form>
+  </div>
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>打鍵アクティビティ ダッシュボード</title>
+<link id="favicon" rel="icon" type="image/png" href="{{ url_for('keyboard_icon', keyboard_name=current_keyboard) }}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  body { font-family: "Segoe UI", sans-serif; margin: 2rem; background:#f7f7f8; color:#222; }
+  h1 { font-size: 1.4rem; }
+  p.desc { color: #555; }
+  table { border-collapse: collapse; margin-top: 1rem; width: 100%; background: white; }
+  th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: right; font-size: 0.9rem; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { background: #eee; }
+  .charts { display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 2rem; }
+  .chart-box { flex: 1 1 400px; max-width: 600px; background: white; padding: 1rem; border-radius: 8px; }
+  .keyboard-panel { background: white; padding: 1rem 1.2rem; border-radius: 8px; margin-top: 1rem; display: flex; gap: 2rem; flex-wrap: wrap; align-items: flex-end; }
+  .keyboard-panel form { display: flex; gap: 0.5rem; align-items: flex-end; }
+  .keyboard-panel label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.2rem; }
+  .keyboard-panel select, .keyboard-panel input[type=text] { padding: 0.3rem 0.5rem; font-size: 0.9rem; }
+  .keyboard-panel button { padding: 0.35rem 0.8rem; font-size: 0.9rem; cursor: pointer; }
+  .current-keyboard { font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>打鍵アクティビティ ダッシュボード</h1>
+  <p class="desc">キーボードごとの速度(文字/分)と正確さ(即時訂正率)の推移です。実際に入力した文字列は記録していません。</p>
+
+  <div class="keyboard-panel">
+    <div>現在使用中: <span class="current-keyboard">{{ current_keyboard }}</span></div>
+
+    <form method="post" action="{{ url_for('switch_keyboard') }}">
+      <div>
+        <label for="switch-select">登録済みキーボードに切替</label>
+        <select id="switch-select" name="name">
+          {% for kb in keyboards %}
+          <option value="{{ kb }}" {% if kb == current_keyboard %}selected{% endif %}>{{ kb }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit">切替</button>
+    </form>
+
+    <form method="post" action="{{ url_for('add_keyboard') }}">
+      <div>
+        <label for="add-input">新しいキーボードを追加して切替</label>
+        <input id="add-input" type="text" name="name" placeholder="例: 自宅キーボード" required>
+      </div>
+      <button type="submit">追加</button>
+    </form>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box"><canvas id="speedChart"></canvas></div>
+    <div class="chart-box"><canvas id="accuracyChart"></canvas></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>日付</th>
+        <th>キーボード</th>
+        <th title="打鍵の間隔が2秒以上空くごとに1つの「まとまり」として区切った回数(=バースト数)">入力セッション数</th>
+        <th title="通常キー + Backspace/Delete の合計打鍵数">総打鍵数</th>
+        <th title="各入力セッションで「文字数 ÷ セッション時間(分)」を算出し、その日の中央値を採用(訂正キーは含まない)">速度(文字/分)</th>
+        <th title="直前の打鍵から1秒以内に押されたBackspace/Delete(=タイポ)の回数 ÷ 総打鍵数">即時訂正率</th>
+        <th title="直前の打鍵から1秒より間隔が空いた状態で押されたBackspace/Deleteの回数(考え直しての書き直し。即時訂正率には含まない)">書き直し回数(推敲)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in summary %}
+      <tr>
+        <td>{{ row.date }}</td>
+        <td>{{ row.keyboard }}</td>
+        <td>{{ row.burst_count }}</td>
+        <td>{{ row.total_keystrokes }}</td>
+        <td>{{ "%.1f"|format(row.speed_cpm_median) if row.speed_cpm_median is not none else "-" }}</td>
+        <td>{{ "%.1f%%"|format(row.correction_rate * 100) if row.correction_rate is not none else "-" }}</td>
+        <td>{{ row.revision_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h1 style="margin-top:2.5rem;">期間サマリ</h1>
+  <div class="keyboard-panel" style="margin-top:0;">
+    <div>
+      <label for="range-select" style="margin-bottom:0.2rem;">期間サマリの単位</label>
+      <select id="range-select">
+        <option value="week">週次</option>
+        <option value="month">月次</option>
+        <option value="year">年次</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box"><canvas id="periodSpeedChart"></canvas></div>
+    <div class="chart-box"><canvas id="periodAccuracyChart"></canvas></div>
+  </div>
+
+  <table id="period-table">
+    <thead>
+      <tr>
+        <th id="period-header">期間</th>
+        <th>キーボード</th>
+        <th>入力セッション数</th>
+        <th>総打鍵数</th>
+        <th>速度(文字/分)</th>
+        <th>即時訂正率</th>
+        <th>書き直し回数(推敲)</th>
+      </tr>
+    </thead>
+    <tbody id="period-tbody"></tbody>
+  </table>
+
+  <script>
+    const summary = {{ summary_json | safe }};
+    const keyboards = [...new Set(summary.map(r => r.keyboard))];
+    const dates = [...new Set(summary.map(r => r.date))].sort();
+    const palette = ["#4C6EF5", "#F76707", "#2F9E44", "#E64980", "#7048E8"];
+
+    function seriesFor(keyboard, field, transform) {
+      transform = transform || (v => v);
+      return dates.map(d => {
+        const row = summary.find(r => r.date === d && r.keyboard === keyboard);
+        const v = row ? row[field] : null;
+        return (v === null || v === undefined) ? null : transform(v);
+      });
+    }
+
+    function buildChart(canvasId, field, title, yLabel, transform) {
+      const ctx = document.getElementById(canvasId);
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: dates,
+          datasets: keyboards.map((kb, i) => ({
+            label: kb,
+            data: seriesFor(kb, field, transform),
+            borderColor: palette[i % palette.length],
+            backgroundColor: palette[i % palette.length],
+            spanGaps: true,
+            tension: 0.2,
+          })),
+        },
+        options: {
+          responsive: true,
+          plugins: { title: { display: true, text: title } },
+          scales: { y: { title: { display: true, text: yLabel }, beginAtZero: true } },
+        },
+      });
+    }
+
+    // Chart.js はCDN読み込みのため、オフライン・CDN障害時は`Chart`が未定義になりうる。
+    // ここで例外を握りつぶさないと、以降のスクリプト(期間サマリ・favicon追従)が
+    // 丸ごと止まってしまうため、必ずtry/catchで囲む。
+    try {
+      buildChart('speedChart', 'speed_cpm_median', '速度(文字/分)の推移', '文字/分');
+      buildChart('accuracyChart', 'correction_rate', '即時訂正率の推移', '%', v => v * 100);
+    } catch (e) {
+      console.warn('Chart.jsが利用できないため、日次グラフの描画をスキップしました', e);
+    }
+
+    // 期間サマリ(週/月/年)。ページ内の同じ場所でセレクトボックスにより切り替える。
+    const rangeLabels = { week: '週', month: '月', year: '年' };
+    let periodSpeedChart = null;
+    let periodAccuracyChart = null;
+
+    function renderPeriodTable(periodSummary) {
+      const tbody = document.getElementById('period-tbody');
+      tbody.innerHTML = '';
+      for (const row of periodSummary) {
+        const tr = document.createElement('tr');
+        const speed = (row.speed_cpm_median === null || row.speed_cpm_median === undefined)
+          ? '-' : row.speed_cpm_median.toFixed(1);
+        const rate = (row.correction_rate === null || row.correction_rate === undefined)
+          ? '-' : (row.correction_rate * 100).toFixed(1) + '%';
+        tr.innerHTML = `<td>${row.period}</td><td>${row.keyboard}</td><td>${row.burst_count}</td>` +
+          `<td>${row.total_keystrokes}</td><td>${speed}</td><td>${rate}</td><td>${row.revision_count}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function buildPeriodChart(existing, canvasId, periodSummary, periods, kbs, field, title, yLabel, transform) {
+      transform = transform || (v => v);
+      if (existing) existing.destroy();
+      if (typeof Chart === 'undefined') return null;  // Chart.js未読み込み時はグラフ無しで表(テーブル)のみ表示する
+      const ctx = document.getElementById(canvasId);
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: periods,
+          datasets: kbs.map((kb, i) => ({
+            label: kb,
+            data: periods.map(p => {
+              const row = periodSummary.find(r => r.period === p && r.keyboard === kb);
+              const v = row ? row[field] : null;
+              return (v === null || v === undefined) ? null : transform(v);
+            }),
+            borderColor: palette[i % palette.length],
+            backgroundColor: palette[i % palette.length],
+            spanGaps: true,
+            tension: 0.2,
+          })),
+        },
+        options: {
+          responsive: true,
+          plugins: { title: { display: true, text: title } },
+          scales: { y: { title: { display: true, text: yLabel }, beginAtZero: true } },
+        },
+      });
+    }
+
+    async function loadPeriodSummary() {
+      const range = document.getElementById('range-select').value;
+      document.getElementById('period-header').textContent = rangeLabels[range] + '(期間)';
+      const res = await fetch('/api/summary?range=' + range);
+      const periodSummary = await res.json();
+      const periods = [...new Set(periodSummary.map(r => r.period))].sort();
+      const kbs = [...new Set(periodSummary.map(r => r.keyboard))];
+
+      periodSpeedChart = buildPeriodChart(
+        periodSpeedChart, 'periodSpeedChart', periodSummary, periods, kbs,
+        'speed_cpm_median', '速度(文字/分)の推移', '文字/分'
+      );
+      periodAccuracyChart = buildPeriodChart(
+        periodAccuracyChart, 'periodAccuracyChart', periodSummary, periods, kbs,
+        'correction_rate', '即時訂正率の推移', '%', v => v * 100
+      );
+      renderPeriodTable(periodSummary);
+    }
+
+    document.getElementById('range-select').addEventListener('change', loadPeriodSummary);
+    loadPeriodSummary();
+
+    // タスクトレイ側でキーボードが切り替わった場合にも、開いたままのタブのfaviconを追従させる。
+    let lastKnownKeyboard = {{ current_keyboard | tojson }};
+    async function pollCurrentKeyboard() {
+      try {
+        const res = await fetch('/api/current_keyboard');
+        const data = await res.json();
+        if (data.keyboard && data.keyboard !== lastKnownKeyboard) {
+          lastKnownKeyboard = data.keyboard;
+          document.getElementById('favicon').href = '/icons/' + encodeURIComponent(data.keyboard) + '.png';
+        }
+      } catch (e) {
+        // ダッシュボードサーバ一時停止等は無視して次回ポーリングに任せる
+      }
+    }
+    setInterval(pollCurrentKeyboard, 5000);
+  </script>
+</body>
+</html>
