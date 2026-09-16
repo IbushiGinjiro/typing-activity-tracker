@@ -9,7 +9,7 @@ DEFAULT_CONFIG = {
     "db_path": "data/events.db",
     "dashboard_host": "127.0.0.1",
     "dashboard_port": 5151,
-    "device_grace_period_seconds": 5.0,
+    "device_grace_period_seconds": 15.0,
     "onboarding_done": False,
 }
 

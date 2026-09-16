@@ -62,7 +62,7 @@
 - [x] `/api/current_keyboard`エンドポイント追加
 - [x] `dashboard.html`にポーリングJS追加(数秒おきにfaviconを最新化)
 - [x] Flaskテストクライアントでの動作確認(`/`にfaviconリンク、`/api/current_keyboard`、`%`を含むラベルでの`/icons/*.png`が200を返すこと)
-- [ ] 実機での最終確認(タスクトレイ切替→favicon追従、ダッシュボード切替→トレイアイコン追従)はアプリ再起動が必要なため、2〜4の実装完了後にまとめて行う
+- [x] 実機での最終確認(2026-09-16、ユーザー確認): アプリ再起動→デフォルト状態→USB抜き差しで新規デバイス登録画面に誘導→登録後、favicon が作成したキーボードのアイコンに追従することを確認
 
 ## 2. キーボードの自動選択(2026-09-16)
 - [x] `requirements.txt`に`WMI`・`winotify`を追加、インストール済み
@@ -77,7 +77,7 @@
 - [x] 既存ユーザー(既にキーボード登録済み)は初回起動時にオンボーディングをスキップし`onboarding_done: true`を自動設定するマイグレーション処理(`main.py`の`_migrate_onboarding_flag`)
 - [x] 単体テスト: VID/PID抽出ロジック(実機のDeviceID文字列で検証)、`DeviceWatcher`のシナリオ1〜4相当(既知デバイス切替、未知デバイス通知、猶予→フォールバック、猶予中再接続でのキャンセル、猶予中の別デバイス即時切替、手動切替でのdevice_key追跡リセット/引き継ぎ、VID/PID無しデバイスの無視)を`tests/test_device_watch.py`でカバー、全件パス
 - [x] Flaskテストクライアントでオンボーディングのリダイレクト・完了後の`onboarding_done`永続化、新規デバイス登録画面の表示・紐付け(`device_keyboards`登録+即切替)を確認
-- [ ] (ユーザー側)実機での動作確認: 新規デバイス検出→登録フロー、登録済みデバイスの抜き挿し、猶予期間中の挙動、Bluetoothキーボードでの検出可否(BLE HIDはVID/PIDが取れず自動検出対象外になる可能性がある。KNOWLEDGE.md参照)
+- [x] (ユーザー側)実機での動作確認(2026-09-16): アプリ再起動時に挿さった状態→default、USB抜き差しで未登録デバイス検出→登録画面への誘導、を確認。登録済みデバイスの猶予期間中の挙動・Bluetoothキーボードでの検出可否は未確認のまま(必要になったら追って確認)
 
 ## 3. 期間サマリ(週/月/年)(2026-09-16)
 - [x] `analysis.py`に`aggregate_period(bursts, range_type)`追加(week=ISO週/month/yearでグルーピング、`aggregate_daily`と同様の指標)。単体テスト追加(ISO週の境界、月またぎ、年またぎ、不正なrange_typeでのValueError)
@@ -100,6 +100,6 @@
 - [x] 修正後、非公開の隔離フォルダ(別ポート・別config.json)で実際にexeを起動し、ダッシュボード応答・
       config.json/data/events.dbがexeの隣に正しく作られること・オンボーディング完了後にicons/index
       ルートが正常応答することを確認。本番稼働中のpythonwプロセス(ポート5151)には影響が無いことも確認
-- [ ] GitHub Public新規リポジトリ`IbushiGinjiro/typing-activity-tracker`作成、push前に`git status`で最終確認してからpush
-- [ ] GitHub Releasesに.exe添付
+- [x] GitHub Public新規リポジトリ`IbushiGinjiro/typing-activity-tracker`作成、push前にファイル一覧を最終確認してからpush(https://github.com/IbushiGinjiro/typing-activity-tracker)
+- [x] GitHub Releases v1.0.0に.exe添付(https://github.com/IbushiGinjiro/typing-activity-tracker/releases/tag/v1.0.0)
 - [x] KNOWLEDGE.mdに配布作業で得た気付きを追記(PyInstallerの3つの落とし穴)
