@@ -14,9 +14,10 @@ import json
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
-from .analysis import aggregate_daily, aggregate_period, build_bursts
+from . import autostart
+from .analysis import aggregate_by_keyboard, aggregate_daily, aggregate_period, build_bursts
 from .config import save_config
-from .icons import icon_path_for
+from .icons import icon_path_for, keyboards_with_dedicated_icon
 
 
 def create_app(db, state, config):
@@ -45,6 +46,13 @@ def create_app(db, state, config):
                 name = (request.form.get("name") or "").strip()
                 if name:
                     state.set_keyboard(name, method="manual")
+            if request.form.get("register_startup") == "on":
+                try:
+                    autostart.register()
+                except Exception:
+                    # スタートアップ登録に失敗しても、README記載の手動手順にフォールバック
+                    # できるので、オンボーディング自体は継続する。
+                    pass
             config["onboarding_done"] = True
             save_config(config)
             return redirect(url_for("index"))
@@ -60,6 +68,9 @@ def create_app(db, state, config):
             summary_json=json.dumps(summary),
             current_keyboard=state.keyboard_name,
             keyboards=keyboards,
+            icon_keyboards=keyboards_with_dedicated_icon(),
+            icon_keyboards_json=json.dumps(keyboards_with_dedicated_icon()),
+            auto_open_dashboard_on_startup=config.get("auto_open_dashboard_on_startup", True),
         )
 
     @app.route("/api/summary")
@@ -69,6 +80,10 @@ def create_app(db, state, config):
             return jsonify(aggregate_period(_bursts(), range_type))
         return jsonify(_daily_summary())
 
+    @app.route("/api/keyboard_summary")
+    def api_keyboard_summary():
+        return jsonify(aggregate_by_keyboard(_bursts()))
+
     @app.route("/api/current_keyboard")
     def api_current_keyboard():
         return jsonify({"keyboard": state.keyboard_name})
@@ -76,6 +91,12 @@ def create_app(db, state, config):
     @app.route("/icons/<path:keyboard_name>.png")
     def keyboard_icon(keyboard_name):
         return send_file(icon_path_for(keyboard_name), mimetype="image/png")
+
+    @app.route("/settings/auto_open_dashboard", methods=["POST"])
+    def set_auto_open_dashboard():
+        config["auto_open_dashboard_on_startup"] = request.form.get("enabled") == "on"
+        save_config(config)
+        return redirect(url_for("index"))
 
     @app.route("/keyboards/switch", methods=["POST"])
     def switch_keyboard():

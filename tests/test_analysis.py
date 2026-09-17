@@ -1,7 +1,14 @@
 import datetime
 import unittest
 
-from app.analysis import aggregate_daily, aggregate_period, build_bursts, burst_correction_rate, burst_cpm
+from app.analysis import (
+    aggregate_by_keyboard,
+    aggregate_daily,
+    aggregate_period,
+    build_bursts,
+    burst_correction_rate,
+    burst_cpm,
+)
 
 
 class BuildBurstsTest(unittest.TestCase):
@@ -117,6 +124,60 @@ class AggregatePeriodTest(unittest.TestCase):
         bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
         with self.assertRaises(ValueError):
             aggregate_period(bursts, "day")
+
+
+def _day_ts(year, month, day, hour=10):
+    return datetime.datetime(year, month, day, hour, 0, 0).timestamp()
+
+
+def _n_single_char_bursts(start_ts, keyboard, count, gap=2.0):
+    # gap(既定2.0秒)はburst_gap_seconds以上なので、1イベント=1バースト(=1入力セッション)になる。
+    return [(start_ts + i * gap, "char", keyboard) for i in range(count)]
+
+
+class AggregateByKeyboardTest(unittest.TestCase):
+    def test_avg_sessions_per_month_divides_by_active_months_only(self):
+        # 2026-01に10セッション、2026-02は未使用、2026-03に20セッション -> 30 / 2ヶ月 = 15.0
+        events = _n_single_char_bursts(_day_ts(2026, 1, 10), "kbA", 10) + _n_single_char_bursts(
+            _day_ts(2026, 3, 10), "kbA", 20
+        )
+        bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        result = {r["keyboard"]: r for r in aggregate_by_keyboard(bursts)}
+        self.assertEqual(result["kbA"]["total_sessions"], 30)
+        self.assertEqual(result["kbA"]["active_months"], 2)
+        self.assertAlmostEqual(result["kbA"]["avg_sessions_per_month"], 15.0)
+
+    def test_main_usage_day_counted_when_over_100_even_with_other_keyboard(self):
+        events = _n_single_char_bursts(_day_ts(2026, 5, 1), "kbA", 101) + _n_single_char_bursts(
+            _day_ts(2026, 5, 1, hour=20), "kbB", 5
+        )
+        bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        result = {r["keyboard"]: r for r in aggregate_by_keyboard(bursts)}
+        self.assertEqual(result["kbA"]["main_usage_days"], 1)
+
+    def test_main_usage_day_counted_when_over_10_and_exclusive(self):
+        events = _n_single_char_bursts(_day_ts(2026, 5, 2), "kbA", 11)
+        bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        result = {r["keyboard"]: r for r in aggregate_by_keyboard(bursts)}
+        self.assertEqual(result["kbA"]["main_usage_days"], 1)
+
+    def test_main_usage_day_not_counted_when_over_10_but_other_keyboard_also_used(self):
+        events = _n_single_char_bursts(_day_ts(2026, 5, 3), "kbA", 11) + _n_single_char_bursts(
+            _day_ts(2026, 5, 3, hour=20), "kbB", 1
+        )
+        bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        result = {r["keyboard"]: r for r in aggregate_by_keyboard(bursts)}
+        self.assertEqual(result["kbA"]["main_usage_days"], 0)
+
+    def test_main_usage_day_not_counted_when_10_or_fewer(self):
+        events = _n_single_char_bursts(_day_ts(2026, 5, 4), "kbA", 10)
+        bursts = build_bursts(events, burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        result = {r["keyboard"]: r for r in aggregate_by_keyboard(bursts)}
+        self.assertEqual(result["kbA"]["main_usage_days"], 0)
+
+    def test_keyboard_never_used_that_month_has_no_avg(self):
+        bursts = build_bursts([], burst_gap_seconds=2.0, typo_window_seconds=1.0)
+        self.assertEqual(aggregate_by_keyboard(bursts), [])
 
 
 if __name__ == "__main__":

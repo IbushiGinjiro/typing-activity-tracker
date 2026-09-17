@@ -1,6 +1,7 @@
 """エントリポイント。キー入力キャプチャ・ダッシュボード・タスクトレイ・USB自動検出を起動する。"""
 import sys
 import threading
+import webbrowser
 
 from .capture import KeyCapture
 from .config import load_config, save_config
@@ -46,8 +47,14 @@ def main():
     )
     server_thread.start()
 
+    if config.get("auto_open_dashboard_on_startup", True):
+        webbrowser.open(dashboard_url)
+
     notifier = DeviceNotifier(dashboard_url)
-    watcher = DeviceWatcher(db, state, config["device_grace_period_seconds"], notifier)
+    watcher = DeviceWatcher(
+        db, state, config["device_grace_period_seconds"], notifier,
+        creation_batch_seconds=config["device_creation_batch_seconds"],
+    )
     watcher.start()
 
     def on_quit():

@@ -80,11 +80,11 @@ KEY_A = "VID_0001&PID_0001"
 KEY_B = "VID_0002&PID_0002"
 
 
-def make_watcher(mapping, grace=5.0):
+def make_watcher(mapping, grace=5.0, creation_batch=0.05):
     db = FakeDB(mapping)
     state = FakeState(db)
     notifier = FakeNotifier()
-    watcher = DeviceWatcher(db, state, grace, notifier)
+    watcher = DeviceWatcher(db, state, grace, notifier, creation_batch_seconds=creation_batch)
     return watcher, db, state, notifier
 
 
@@ -92,18 +92,21 @@ class DeviceWatcherScenarioTest(unittest.TestCase):
     def test_known_device_creation_switches_and_notifies(self):
         watcher, db, state, notifier = make_watcher({KEY_A: "aula65"})
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)  # creation_batch_seconds(0.05)経過を待つ
         self.assertEqual(state.keyboard_name, "aula65")
         self.assertEqual(notifier.switches, ["aula65"])
 
     def test_unknown_device_creation_notifies_without_switch(self):
         watcher, db, state, notifier = make_watcher({})
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)
         self.assertEqual(state.keyboard_name, "default")
         self.assertEqual(notifier.unknowns, [KEY_A])
 
     def test_deletion_of_active_device_starts_grace_then_falls_back(self):
         watcher, db, state, notifier = make_watcher({KEY_A: "aula65"}, grace=0.05)
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)
         watcher._handle_deletion(f"HID\\{KEY_A}&MI_00")
         self.assertEqual(len(notifier.grace_starts), 1)
         self.assertEqual(state.keyboard_name, "aula65")  # 猶予中はまだ切り替わらない
@@ -114,8 +117,9 @@ class DeviceWatcherScenarioTest(unittest.TestCase):
     def test_reconnect_within_grace_cancels_fallback_silently(self):
         watcher, db, state, notifier = make_watcher({KEY_A: "aula65"}, grace=0.2)
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)
         watcher._handle_deletion(f"HID\\{KEY_A}&MI_00")
-        watcher._handle_creation(f"HID\\{KEY_A}&MI_00")  # 猶予中に挿し直し
+        watcher._handle_creation(f"HID\\{KEY_A}&MI_00")  # 猶予中に挿し直し(reconnect_of_pendingで即時処理)
         time.sleep(0.35)
         self.assertEqual(state.keyboard_name, "aula65")
         self.assertEqual(notifier.fallbacks, 0)
@@ -125,8 +129,10 @@ class DeviceWatcherScenarioTest(unittest.TestCase):
     def test_different_known_device_during_grace_overrides_immediately(self):
         watcher, db, state, notifier = make_watcher({KEY_A: "aula65", KEY_B: "th40"}, grace=5.0)
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)
         watcher._handle_deletion(f"HID\\{KEY_A}&MI_00")
         watcher._handle_creation(f"HID\\{KEY_B}&MI_00")
+        time.sleep(0.1)
         self.assertEqual(state.keyboard_name, "th40")
         self.assertEqual(notifier.switches, ["aula65", "th40"])
         # 長い猶予(5秒)を待たなくても即座に切り替わっている = 保留中のフォールバックは
@@ -136,6 +142,7 @@ class DeviceWatcherScenarioTest(unittest.TestCase):
     def test_manual_switch_resets_device_tracking(self):
         watcher, db, state, notifier = make_watcher({KEY_A: "aula65"}, grace=0.05)
         watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        time.sleep(0.1)
         state.set_keyboard("th40", method="manual")  # タスクトレイ/ダッシュボードからの手動切替を模擬
         self.assertIsNone(watcher._active_device_key)
         # Aを抜いても、もう追跡対象ではないので何も起きない
@@ -156,6 +163,65 @@ class DeviceWatcherScenarioTest(unittest.TestCase):
         self.assertEqual(state.keyboard_name, "default")
         self.assertEqual(notifier.switches, [])
         self.assertEqual(notifier.unknowns, [])
+
+
+class DeviceWatcherCreationBatchTest(unittest.TestCase):
+    """1回の抜き差しで複数のCreationイベントがほぼ同時に来た場合の判定(2026-09-17)。"""
+
+    def test_known_device_wins_even_if_unknown_device_arrives_first(self):
+        watcher, db, state, notifier = make_watcher({KEY_A: "aula65"}, creation_batch=0.05)
+        watcher._handle_creation(f"HID\\{KEY_B}&MI_00")  # 未登録の別デバイスが先に来る
+        watcher._handle_creation(f"HID\\{KEY_A}&MI_00")  # すぐ後に登録済みキーボードが来る
+        time.sleep(0.15)
+        self.assertEqual(state.keyboard_name, "aula65")
+        self.assertEqual(notifier.switches, ["aula65"])
+        self.assertEqual(notifier.unknowns, [])  # 未登録デバイスの紛らわしい通知は出ない
+
+    def test_all_unknown_devices_in_batch_notify_only_once(self):
+        watcher, db, state, notifier = make_watcher({}, creation_batch=0.05)
+        watcher._handle_creation(f"HID\\{KEY_A}&MI_00")
+        watcher._handle_creation(f"HID\\{KEY_B}&MI_00")
+        time.sleep(0.15)
+        self.assertEqual(state.keyboard_name, "default")
+        self.assertEqual(notifier.unknowns, [KEY_A])
+
+    def test_events_outside_batch_window_are_handled_separately(self):
+        watcher, db, state, notifier = make_watcher({KEY_A: "aula65"}, creation_batch=0.05)
+        watcher._handle_creation(f"HID\\{KEY_B}&MI_00")  # 未登録(バッチ1)
+        time.sleep(0.15)
+        self.assertEqual(notifier.unknowns, [KEY_B])
+        watcher._handle_creation(f"HID\\{KEY_A}&MI_00")  # 別タイミングで登録済みが来る(バッチ2)
+        time.sleep(0.15)
+        self.assertEqual(state.keyboard_name, "aula65")
+        self.assertEqual(notifier.switches, ["aula65"])
+
+
+class DeviceWatcherInitialScanTest(unittest.TestCase):
+    """起動時、既に接続済みのキーボードを検知するスキャン(_scan_initial)のテスト。"""
+
+    def test_registered_device_already_connected_switches_and_notifies(self):
+        watcher, db, state, notifier = make_watcher({KEY_A: "aula65"})
+        watcher._scan_initial([f"HID\\{KEY_A}&MI_00"])
+        self.assertEqual(state.keyboard_name, "aula65")
+        self.assertEqual(notifier.switches, ["aula65"])
+
+    def test_no_registered_device_connected_stays_default(self):
+        watcher, db, state, notifier = make_watcher({})
+        watcher._scan_initial([f"HID\\{KEY_A}&MI_00", r"ACPI\ATK3001\4&230E843&0"])
+        self.assertEqual(state.keyboard_name, "default")
+        self.assertEqual(notifier.switches, [])
+
+    def test_empty_device_list_stays_default(self):
+        watcher, db, state, notifier = make_watcher({KEY_A: "aula65"})
+        watcher._scan_initial([])
+        self.assertEqual(state.keyboard_name, "default")
+        self.assertEqual(notifier.switches, [])
+
+    def test_multiple_registered_devices_connected_picks_first_only(self):
+        watcher, db, state, notifier = make_watcher({KEY_A: "aula65", KEY_B: "th40"})
+        watcher._scan_initial([f"HID\\{KEY_A}&MI_00", f"HID\\{KEY_B}&MI_00"])
+        self.assertEqual(state.keyboard_name, "aula65")
+        self.assertEqual(notifier.switches, ["aula65"])
 
 
 if __name__ == "__main__":

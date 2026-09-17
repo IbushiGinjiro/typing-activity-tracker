@@ -103,3 +103,71 @@
 - [x] GitHub Public新規リポジトリ`IbushiGinjiro/typing-activity-tracker`作成、push前にファイル一覧を最終確認してからpush(https://github.com/IbushiGinjiro/typing-activity-tracker)
 - [x] GitHub Releases v1.0.0に.exe添付(https://github.com/IbushiGinjiro/typing-activity-tracker/releases/tag/v1.0.0)
 - [x] KNOWLEDGE.mdに配布作業で得た気付きを追記(PyInstallerの3つの落とし穴)
+
+## 5. 起動時に既に接続済みのキーボードを検知できない不具合の修正(2026-09-17)
+- [x] `DeviceWatcher.start()`の順序を変更: Creation/Deletionの`watch_for`サブスクリプション確立を待ってから初期スキャンを行うようにする(取りこぼし防止)
+- [x] `DeviceWatcher._scan_initial()`を追加: `Win32_PnPEntity(PNPClass="Keyboard")`で現在接続中のデバイスを列挙し、`device_keyboards`に登録済みのものが見つかったら`_switch_to`+`notify_switch`(複数該当時は最初の1件のみ採用)
+- [x] 単体テスト追加(`tests/test_device_watch.py`): 起動時スキャンで登録済みデバイスが見つかり自動切替されるケース、見つからない(未登録 or 接続無し)ケース、複数登録済みデバイスが同時接続されている場合は最初の1件のみ採用するケース(全33件パス)
+- [x] 動作確認: ユーザー側で実機確認 → **実際にはdefaultから変わらず、不具合再現**(2026-09-17)
+- [x] 原因調査用に`device_watch.py`へデバッグログ出力を追加(`data/device_watch.log`。初期スキャンで見つかったデバイス一覧・各device_keyの登録有無・Creation/Deletionイベント受信も記録)。pythonw実行はコンソールが無く原因が見えないための対応
+- [x] ユーザー側でアプリ再起動→再現→`data/device_watch.log`の内容を確認して原因特定
+      → **`_scan_initial`自体は正常動作**(PNPClass=Keyboardのデバイス6件を正しく検出・VID/PID抽出も正常)。
+      原因は`device_keyboards`テーブルを直接確認したところ判明: 「自宅TH40%」は`device_key`が登録されているが、
+      **「職場aula65%」にはそもそも`device_key`が1件も登録されていなかった**(常時挿しっぱなしで一度も
+      「新規デバイス検出」の抜き差しフローを通っていなかったため)。初期スキャン・着脱イベントどちらの
+      経路でも、未登録デバイスは自動切替のしようがない(これは仕様通り)。
+- [x] ユーザー側で職場aulaのケーブルを一度抜き差しし、「新規デバイス検出」トースト→ダッシュボードの
+      登録画面で「職場aula65%」に紐付け、検知に成功したことを確認(2026-09-17)
+- [ ] KNOWLEDGE.mdに気付きを追記
+
+## 8. 抜き差し時に「新しいキーボードを検知しました」が登録済みキーボードの通知より先に出る(2026-09-17)
+- [x] 原因: USB複合デバイスの抜き差し1回で、無関係な他のPnPデバイス(ハブ・レシーバー等でPNPClassが
+      たまたまKeyboardになっているもの)のCreationイベントがほぼ同時に複数発生することがあり、
+      たまたま未登録デバイスの方が先に処理されると「新しいキーボードを検出しました」が先に出る
+- [x] `DeviceWatcher`にCreationイベントの短時間バッチ処理を追加(`creation_batch_seconds`、既定2秒)。
+      同じ時間窓に届いたdevice_keyをまとめて判定し、登録済みのものが1つでもあればそちらを優先して
+      自動切替(未登録の通知は出さない)。バッチ内が全部未登録の場合のみ、まとめて1回だけ通知する
+- [x] `config.json`に`device_creation_batch_seconds`(既定2.0)を追加、`main.py`から渡すように変更
+- [x] 単体テスト追加(登録済み+未登録が同時到着→登録済み優先・未登録通知無し、全部未登録→通知1回のみ、
+      時間窓の外なら別々に処理、既存の抜き差しシナリオも全て通ることを確認。全42件パス)
+- [ ] (ユーザー側)実機で確認
+
+## 10. スタートアップ登録・ダッシュボード自動起動(2026-09-17)
+- [x] `app/autostart.py`新設: `shell:startup`フォルダへのショートカット作成/削除/登録確認(`win32com.client`、frozen/非frozen両対応)
+- [x] `app/config.py`に`auto_open_dashboard_on_startup`(既定true)を追加
+- [x] `app/main.py`: Flaskサーバ起動後、設定が有効なら`webbrowser.open(dashboard_url)`
+- [x] オンボーディング画面に「Windowsのスタートアップに登録する(推奨)」チェックボックス(既定ON)を追加、送信時に`autostart.register()`を呼ぶ(失敗しても致命的にはしない)
+- [x] ダッシュボードに「起動時にダッシュボードを自動で開く」チェックボックスを追加、変更時にfetchで即時`/settings/auto_open_dashboard`へ反映・`config.json`に保存
+- [x] 単体テスト追加(`tests/test_autostart.py`: ショートカットパス生成、frozen/非frozen判定、pythonw不在時のフォールバック。全47件パス)
+- [x] Flaskテストクライアント+ブラウザで動作確認(オンボーディングのチェックボックス表示、送信時の`autostart.register()`呼び出し、ダッシュボードのチェックボックス表示・トグルの永続化)
+- [x] READMEに追記
+- [ ] (ユーザー側)実機で確認(スタートアップ登録が実際に機能するか、PC再起動を伴うため要実機確認)
+
+## 9. ダッシュボード微調整(2026-09-17)
+- [x] キーボード別タブのグラフが期間別タブと比べて縦にすごく大きくなる不具合を修正
+      (`flex-basis:100%; max-width:100%`の独自スタイルをやめ、他タブと同じ`.chart-box`サイズに統一)
+- [x] キーボード別タブに2つ目のグラフ(円グラフ: 使用日数(メイン機)の内訳)を追加
+- [x] 実際にブラウザ(claude-in-chrome)でサイズ・円グラフ描画を確認済み
+- [x] ユーザー確認: 棒グラフはOK、円グラフだけ縦に大きすぎるとの指摘
+      → 原因はChart.jsの円グラフのデフォルト縦横比(1:1)が棒グラフ側(2:1)と異なるため。
+      `aspectRatio: 2`を明示指定して棒グラフと高さを揃え、ブラウザで確認済み
+- [ ] (ユーザー側)実機で最終確認
+
+## 7. Chart.jsのCDNバージョンが失効しグラフが描画されない不具合(2026-09-17)
+- [x] 原因特定: `dashboard.html`に固定していたcdnjs上の`Chart.js/4.4.4/chart.umd.min.js`が
+      cdnjs側から削除されており(バージョン一覧照会で確認)、自宅・会社どちらの環境でも404になっていた
+      (ネットワーク・プロキシの問題ではなかった)
+- [x] 現在cdnjsに存在する`4.5.1`に固定バージョンを更新(`chart.umd.min.js`のファイル名は変わらず存在)
+- [x] 実際にブラウザ(claude-in-chrome)でグラフが描画されることを確認済み
+- [ ] (ユーザー側)実機で確認
+
+## 6. ダッシュボード改良(2026-09-17)
+- [x] `app/icons.py`に`keyboards_with_dedicated_icon()`追加(専用アイコンが無いラベルはデフォルトにフォールバックさせず判定できるように)
+- [x] 日次表・サマリ各表のキーボード名の左に専用アイコンを表示(専用アイコンが無いものは空欄)
+- [x] 「期間サマリ」を「サマリ」に改名し、「期間別」「キーボード別」のタブ切替構成にリファクタ
+- [x] `app/analysis.py`に`aggregate_by_keyboard()`追加: 月平均セッション数(実使用月数で除算)、使用日数(メイン機。100超え or 10超え+他キーボード未使用の日をカウント)、累計セッション数・総打鍵数・速度中央値・即時訂正率・書き直し回数
+- [x] `/api/keyboard_summary`エンドポイント追加
+- [x] 「キーボード別」タブに、表のすぐ上へ月別入力セッション数のキーボード別グラフを追加(`/api/summary?range=month`を再利用)
+- [x] 単体テスト追加(`aggregate_by_keyboard`: 月平均の分母、使用日数の各境界条件。全39件パス)
+- [x] Flaskテストクライアント+実際にブラウザ(claude-in-chrome)で確認: タブ切替、専用アイコン有り/無しキーボードでの表示差、`/api/keyboard_summary`の値
+- [ ] (ユーザー側)実機での見た目確認・要望との認識合致の確認

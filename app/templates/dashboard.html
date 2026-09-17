@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>打鍵アクティビティ ダッシュボード</title>
 <link id="favicon" rel="icon" type="image/png" href="{{ url_for('keyboard_icon', keyboard_name=current_keyboard) }}">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
 <style>
   body { font-family: "Segoe UI", sans-serif; margin: 2rem; background:#f7f7f8; color:#222; }
   h1 { font-size: 1.4rem; }
@@ -21,6 +21,12 @@
   .keyboard-panel select, .keyboard-panel input[type=text] { padding: 0.3rem 0.5rem; font-size: 0.9rem; }
   .keyboard-panel button { padding: 0.35rem 0.8rem; font-size: 0.9rem; cursor: pointer; }
   .current-keyboard { font-weight: bold; }
+  .checkbox-row { display: flex; align-items: center; gap: 0.4rem; }
+  .checkbox-row input { width: auto; }
+  .kb-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: 0.35rem; object-fit: contain; }
+  .summary-tabs { display: flex; gap: 0.5rem; margin-top: 2.5rem; }
+  .summary-tabs button { padding: 0.4rem 1rem; font-size: 0.9rem; cursor: pointer; border: 1px solid #ccc; background: #eee; border-radius: 4px 4px 0 0; }
+  .summary-tabs button.active { background: white; border-bottom-color: white; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -49,6 +55,11 @@
       </div>
       <button type="submit">追加</button>
     </form>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="auto-open-checkbox" {% if auto_open_dashboard_on_startup %}checked{% endif %}>
+      <label for="auto-open-checkbox" style="margin:0; font-size:0.85rem; color:#555;">起動時にダッシュボードを自動で開く</label>
+    </div>
   </div>
 
   <div class="charts">
@@ -72,7 +83,7 @@
       {% for row in summary %}
       <tr>
         <td>{{ row.date }}</td>
-        <td>{{ row.keyboard }}</td>
+        <td>{% if row.keyboard in icon_keyboards %}<img class="kb-icon" src="{{ url_for('keyboard_icon', keyboard_name=row.keyboard) }}" alt="">{% endif %}{{ row.keyboard }}</td>
         <td>{{ row.burst_count }}</td>
         <td>{{ row.total_keystrokes }}</td>
         <td>{{ "%.1f"|format(row.speed_cpm_median) if row.speed_cpm_median is not none else "-" }}</td>
@@ -83,43 +94,83 @@
     </tbody>
   </table>
 
-  <h1 style="margin-top:2.5rem;">期間サマリ</h1>
-  <div class="keyboard-panel" style="margin-top:0;">
-    <div>
-      <label for="range-select" style="margin-bottom:0.2rem;">期間サマリの単位</label>
-      <select id="range-select">
-        <option value="week">週次</option>
-        <option value="month">月次</option>
-        <option value="year">年次</option>
-      </select>
+  <h1 style="margin-top:2.5rem;">サマリ</h1>
+  <div class="summary-tabs">
+    <button type="button" id="tab-period" class="active">期間別</button>
+    <button type="button" id="tab-keyboard">キーボード別</button>
+  </div>
+
+  <div id="panel-period">
+    <div class="keyboard-panel" style="margin-top:0;">
+      <div>
+        <label for="range-select" style="margin-bottom:0.2rem;">期間サマリの単位</label>
+        <select id="range-select">
+          <option value="week">週次</option>
+          <option value="month">月次</option>
+          <option value="year">年次</option>
+        </select>
+      </div>
     </div>
+
+    <div class="charts">
+      <div class="chart-box"><canvas id="periodSpeedChart"></canvas></div>
+      <div class="chart-box"><canvas id="periodAccuracyChart"></canvas></div>
+    </div>
+
+    <table id="period-table">
+      <thead>
+        <tr>
+          <th id="period-header">期間</th>
+          <th>キーボード</th>
+          <th>入力セッション数</th>
+          <th>総打鍵数</th>
+          <th>速度(文字/分)</th>
+          <th>即時訂正率</th>
+          <th>書き直し回数(推敲)</th>
+        </tr>
+      </thead>
+      <tbody id="period-tbody"></tbody>
+    </table>
   </div>
 
-  <div class="charts">
-    <div class="chart-box"><canvas id="periodSpeedChart"></canvas></div>
-    <div class="chart-box"><canvas id="periodAccuracyChart"></canvas></div>
-  </div>
+  <div id="panel-keyboard" hidden>
+    <div class="charts">
+      <div class="chart-box"><canvas id="keyboardMonthlyChart"></canvas></div>
+      <div class="chart-box"><canvas id="keyboardUsageDaysChart"></canvas></div>
+    </div>
 
-  <table id="period-table">
-    <thead>
-      <tr>
-        <th id="period-header">期間</th>
-        <th>キーボード</th>
-        <th>入力セッション数</th>
-        <th>総打鍵数</th>
-        <th>速度(文字/分)</th>
-        <th>即時訂正率</th>
-        <th>書き直し回数(推敲)</th>
-      </tr>
-    </thead>
-    <tbody id="period-tbody"></tbody>
-  </table>
+    <table id="keyboard-table">
+      <thead>
+        <tr>
+          <th>キーボード</th>
+          <th title="実際に入力セッションがあった月の数で、総入力セッション数を割った値(使わなかった月は含めない、使い心地の目安)">月平均セッション数</th>
+          <th title="入力セッション数が100を超えた日、または10を超えかつ同日に他のキーボードの入力記録が無い日の合計日数(そのキーボードをメイン機として使っていたとみなせる日数)">使用日数(メイン機)</th>
+          <th>入力セッション数(累計)</th>
+          <th>総打鍵数(累計)</th>
+          <th>速度(文字/分)</th>
+          <th>即時訂正率</th>
+          <th>書き直し回数(推敲)</th>
+        </tr>
+      </thead>
+      <tbody id="keyboard-tbody"></tbody>
+    </table>
+  </div>
 
   <script>
     const summary = {{ summary_json | safe }};
     const keyboards = [...new Set(summary.map(r => r.keyboard))];
     const dates = [...new Set(summary.map(r => r.date))].sort();
     const palette = ["#4C6EF5", "#F76707", "#2F9E44", "#E64980", "#7048E8"];
+
+    // 専用アイコンが用意されていないキーボードは(タスクトレイ/faviconと違い)デフォルトアイコンに
+    // フォールバックさせず空欄にする。専用アイコンがあるものだけ、名前の前にアイコン画像を出す。
+    const iconKeyboards = {{ icon_keyboards_json | safe }};
+    function kbCellHtml(name) {
+      const icon = iconKeyboards.includes(name)
+        ? `<img class="kb-icon" src="/icons/${encodeURIComponent(name)}.png" alt="">`
+        : '';
+      return icon + name;
+    }
 
     function seriesFor(keyboard, field, transform) {
       transform = transform || (v => v);
@@ -177,7 +228,7 @@
           ? '-' : row.speed_cpm_median.toFixed(1);
         const rate = (row.correction_rate === null || row.correction_rate === undefined)
           ? '-' : (row.correction_rate * 100).toFixed(1) + '%';
-        tr.innerHTML = `<td>${row.period}</td><td>${row.keyboard}</td><td>${row.burst_count}</td>` +
+        tr.innerHTML = `<td>${row.period}</td><td>${kbCellHtml(row.keyboard)}</td><td>${row.burst_count}</td>` +
           `<td>${row.total_keystrokes}</td><td>${speed}</td><td>${rate}</td><td>${row.revision_count}</td>`;
         tbody.appendChild(tr);
       }
@@ -235,6 +286,111 @@
     document.getElementById('range-select').addEventListener('change', loadPeriodSummary);
     loadPeriodSummary();
 
+    // 「サマリ」タブ切替(期間別/キーボード別)。キーボード別は初回タブ表示時に読み込む。
+    const tabPeriodBtn = document.getElementById('tab-period');
+    const tabKeyboardBtn = document.getElementById('tab-keyboard');
+    const panelPeriod = document.getElementById('panel-period');
+    const panelKeyboard = document.getElementById('panel-keyboard');
+    let keyboardSummaryLoaded = false;
+    let keyboardMonthlyChart = null;
+    let keyboardUsageDaysChart = null;
+
+    tabPeriodBtn.addEventListener('click', () => {
+      tabPeriodBtn.classList.add('active');
+      tabKeyboardBtn.classList.remove('active');
+      panelPeriod.hidden = false;
+      panelKeyboard.hidden = true;
+    });
+    tabKeyboardBtn.addEventListener('click', () => {
+      tabKeyboardBtn.classList.add('active');
+      tabPeriodBtn.classList.remove('active');
+      panelPeriod.hidden = true;
+      panelKeyboard.hidden = false;
+      if (!keyboardSummaryLoaded) {
+        keyboardSummaryLoaded = true;
+        loadKeyboardSummary();
+      }
+    });
+
+    function renderKeyboardTable(keyboardSummary) {
+      const tbody = document.getElementById('keyboard-tbody');
+      tbody.innerHTML = '';
+      for (const row of keyboardSummary) {
+        const tr = document.createElement('tr');
+        const speed = (row.speed_cpm_median === null || row.speed_cpm_median === undefined)
+          ? '-' : row.speed_cpm_median.toFixed(1);
+        const rate = (row.correction_rate === null || row.correction_rate === undefined)
+          ? '-' : (row.correction_rate * 100).toFixed(1) + '%';
+        const avgPerMonth = (row.avg_sessions_per_month === null || row.avg_sessions_per_month === undefined)
+          ? '-' : row.avg_sessions_per_month.toFixed(1);
+        tr.innerHTML = `<td>${kbCellHtml(row.keyboard)}</td><td>${avgPerMonth}</td>` +
+          `<td>${row.main_usage_days}</td><td>${row.total_sessions}</td>` +
+          `<td>${row.total_keystrokes}</td><td>${speed}</td><td>${rate}</td><td>${row.revision_count}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function loadKeyboardSummary() {
+      const [monthlyRes, keyboardRes] = await Promise.all([
+        fetch('/api/summary?range=month'),
+        fetch('/api/keyboard_summary'),
+      ]);
+      const monthlySummary = await monthlyRes.json();
+      const keyboardSummary = await keyboardRes.json();
+
+      const months = [...new Set(monthlySummary.map(r => r.period))].sort();
+      const kbs = [...new Set(monthlySummary.map(r => r.keyboard))];
+
+      if (keyboardMonthlyChart) keyboardMonthlyChart.destroy();
+      if (typeof Chart !== 'undefined') {
+        const ctx = document.getElementById('keyboardMonthlyChart');
+        keyboardMonthlyChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: months,
+            datasets: kbs.map((kb, i) => ({
+              label: kb,
+              data: months.map(m => {
+                const row = monthlySummary.find(r => r.period === m && r.keyboard === kb);
+                return row ? row.burst_count : 0;
+              }),
+              backgroundColor: palette[i % palette.length],
+            })),
+          },
+          options: {
+            responsive: true,
+            plugins: { title: { display: true, text: '月ごとの入力セッション数' } },
+            scales: { y: { title: { display: true, text: 'セッション数' }, beginAtZero: true } },
+          },
+        });
+      }
+
+      if (keyboardUsageDaysChart) keyboardUsageDaysChart.destroy();
+      if (typeof Chart !== 'undefined') {
+        const ctx = document.getElementById('keyboardUsageDaysChart');
+        const kbNames = keyboardSummary.map(r => r.keyboard);
+        keyboardUsageDaysChart = new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: kbNames,
+            datasets: [{
+              data: keyboardSummary.map(r => r.main_usage_days),
+              backgroundColor: kbNames.map((_, i) => palette[i % palette.length]),
+            }],
+          },
+          options: {
+            responsive: true,
+            // Chart.jsは円グラフのデフォルト縦横比(1:1)が棒グラフ側(2:1)と異なり、
+            // 同じ.chart-box内でも円グラフだけ縦に大きく見えてしまうため、他のグラフと揃える。
+            aspectRatio: 2,
+            plugins: { title: { display: true, text: '使用日数(メイン機)の内訳' } },
+          },
+        });
+      }
+
+      renderKeyboardTable(keyboardSummary);
+    }
+
     // タスクトレイ側でキーボードが切り替わった場合にも、開いたままのタブのfaviconを追従させる。
     let lastKnownKeyboard = {{ current_keyboard | tojson }};
     async function pollCurrentKeyboard() {
@@ -250,6 +406,15 @@
       }
     }
     setInterval(pollCurrentKeyboard, 5000);
+
+    // 「起動時にダッシュボードを自動で開く」設定。チェック変更を即座にサーバへ反映する。
+    document.getElementById('auto-open-checkbox').addEventListener('change', (e) => {
+      fetch('{{ url_for("set_auto_open_dashboard") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'enabled=' + (e.target.checked ? 'on' : 'off'),
+      });
+    });
   </script>
 </body>
 </html>

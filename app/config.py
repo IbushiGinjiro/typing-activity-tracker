@@ -10,6 +10,8 @@ DEFAULT_CONFIG = {
     "dashboard_host": "127.0.0.1",
     "dashboard_port": 5151,
     "device_grace_period_seconds": 15.0,
+    "device_creation_batch_seconds": 2.0,
+    "auto_open_dashboard_on_startup": True,
     "onboarding_done": False,
 }
 

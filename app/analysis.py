@@ -11,6 +11,10 @@ from datetime import datetime
 
 CORRECTION_TYPES = ("backspace", "delete")
 
+# キーボード別サマリの「メイン機として使った日」判定に使うしきい値(SPEC.md参照)。
+MAIN_USAGE_DAY_SESSION_THRESHOLD = 100  # この数を超えるセッションがあった日は無条件でカウント
+MAIN_USAGE_DAY_EXCLUSIVE_THRESHOLD = 10  # この数を超え、かつ他のキーボードの記録が無い日もカウント
+
 
 def _group_by_keyboard(events):
     groups = defaultdict(list)
@@ -154,6 +158,72 @@ def aggregate_period(bursts, range_type):
                 "total_keystrokes": total_keystrokes,
                 "correction_rate": (total_typo / total_keystrokes) if total_keystrokes else None,
                 "revision_count": sum(b["revision_count"] for b in period_bursts),
+            }
+        )
+    return results
+
+
+def aggregate_by_keyboard(bursts):
+    """キーボードごとの通算サマリを返す(全期間, 1キーボード1行)。
+
+    avg_sessions_per_month: 総入力セッション数(バースト数) ÷ 実際にセッションがあった月数。
+        使わなかった月は分母に含めない(「使い心地」の目安として、稼働月の平均値にするため)。
+    main_usage_days: そのキーボードを「メイン機」として使っていたとみなせる日数。以下の
+        いずれかを満たす日をカウントする(重複しても1日1カウント):
+          - その日のセッション数がMAIN_USAGE_DAY_SESSION_THRESHOLDを超える
+          - その日のセッション数がMAIN_USAGE_DAY_EXCLUSIVE_THRESHOLDを超え、かつ同日に
+            他のキーボードでのセッションが1件も無い(少ししか触っていない日でも、
+            実質そのキーボードしか使っていない日はカウントする)
+    """
+    daily = aggregate_daily(bursts)
+    monthly = aggregate_period(bursts, "month")
+
+    by_keyboard = defaultdict(list)
+    for b in bursts:
+        by_keyboard[b["keyboard"]].append(b)
+
+    sessions_by_date = defaultdict(dict)
+    for row in daily:
+        sessions_by_date[row["date"]][row["keyboard"]] = row["burst_count"]
+
+    active_months = defaultdict(int)
+    for row in monthly:
+        active_months[row["keyboard"]] += 1
+
+    results = []
+    for keyboard, kb_bursts in sorted(by_keyboard.items()):
+        cpm_values = [c for c in (burst_cpm(b) for b in kb_bursts) if c is not None]
+        total_char = sum(b["char_count"] for b in kb_bursts)
+        total_correction = sum(b["correction_count"] for b in kb_bursts)
+        total_typo = sum(b["typo_count"] for b in kb_bursts)
+        total_keystrokes = total_char + total_correction
+        total_sessions = len(kb_bursts)
+
+        months = active_months.get(keyboard, 0)
+        avg_sessions_per_month = (total_sessions / months) if months else None
+
+        main_usage_days = 0
+        for per_kb_sessions in sessions_by_date.values():
+            count = per_kb_sessions.get(keyboard, 0)
+            if count == 0:
+                continue
+            others_used = any(c > 0 for other_kb, c in per_kb_sessions.items() if other_kb != keyboard)
+            if count > MAIN_USAGE_DAY_SESSION_THRESHOLD or (
+                count > MAIN_USAGE_DAY_EXCLUSIVE_THRESHOLD and not others_used
+            ):
+                main_usage_days += 1
+
+        results.append(
+            {
+                "keyboard": keyboard,
+                "total_sessions": total_sessions,
+                "total_keystrokes": total_keystrokes,
+                "speed_cpm_median": statistics.median(cpm_values) if cpm_values else None,
+                "correction_rate": (total_typo / total_keystrokes) if total_keystrokes else None,
+                "revision_count": sum(b["revision_count"] for b in kb_bursts),
+                "active_months": months,
+                "avg_sessions_per_month": avg_sessions_per_month,
+                "main_usage_days": main_usage_days,
             }
         )
     return results

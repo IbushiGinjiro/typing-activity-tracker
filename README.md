@@ -51,8 +51,14 @@ pip install -r requirements.txt
 python -m app.main
 ```
 
-初回起動時はブラウザで初期設定画面が開きます。外部キーボードを使う場合は名前を付けて登録、
-ノートPC内蔵キーボードのみで使う場合は「外部接続キーボードを使わない」にチェックしてください。
+起動すると自動的にブラウザでダッシュボードが開き、初回はそのまま初期設定画面が表示されます。
+外部キーボードを使う場合は名前を付けて登録、ノートPC内蔵キーボードのみで使う場合は
+「外部接続キーボードを使わない」にチェックしてください。「Windowsのスタートアップに登録する」
+にチェックしたまま送信すると、`shell:startup`フォルダにこのアプリを起動するショートカットが
+作成され、次回のPC起動時から自動的に常駐するようになります(既定でチェック済み)。
+
+起動時にダッシュボードを自動で開くかどうかは、ダッシュボード画面上部のチェックボックスで
+いつでも切り替えられます(`config.json`の`auto_open_dashboard_on_startup`に保存されます)。
 
 起動するとタスクトレイにアイコンが常駐します。選択中のキーボードラベルに応じてアイコン画像
 (タスクトレイ・ブラウザタブのfaviconの両方)が切り替わります(`app/icons.py`の
@@ -94,7 +100,9 @@ python -m app.main
   "db_path": "data/events.db",
   "dashboard_host": "127.0.0.1",
   "dashboard_port": 5151,
-  "device_grace_period_seconds": 5.0
+  "device_grace_period_seconds": 5.0,
+  "device_creation_batch_seconds": 2.0,
+  "auto_open_dashboard_on_startup": true
 }
 ```
 

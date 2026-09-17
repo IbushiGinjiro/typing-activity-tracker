@@ -23,3 +23,12 @@ def icon_filename_for(keyboard_name):
 
 def icon_path_for(keyboard_name):
     return os.path.join(ICON_DIR, icon_filename_for(keyboard_name))
+
+
+def keyboards_with_dedicated_icon():
+    """専用アイコンが用意されているキーボード名の一覧。
+
+    ダッシュボードの表では、未対応のラベルにデフォルトアイコンを出すと紛らわしいため、
+    ここに無いラベルはアイコン欄を空欄にする(タスクトレイ/faviconのデフォルトフォールバックとは別扱い)。
+    """
+    return list(KEYBOARD_ICON_FILES.keys())
